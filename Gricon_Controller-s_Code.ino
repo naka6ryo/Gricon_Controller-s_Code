@@ -150,10 +150,11 @@ void updateMotorState() {
   }
 
   int flashRate = 0;
-  if (in == '1') flashRate = 20;
-  else if (in == '2') flashRate = 12;
-  else if (in == '3') flashRate = 5;
-  else if (in == '4') flashRate = 10;
+  float flashRate_deno = 0;
+  if (in == '1') {flashRate = 20; flashRate_deno = 0.4;} 
+  else if (in == '2') {flashRate = 40; flashRate_deno = 0.2;}
+  else if (in == '3') {flashRate = 80; flashRate_deno = 0.125;}
+  else if (in == '4') {flashRate = 100; flashRate_deno = 0.9;}
   else{
     digitalWrite(motorPin, LOW); 
     digitalWrite(LEDR, HIGH); 
@@ -164,7 +165,7 @@ void updateMotorState() {
 
   if (flashRate > 0) {
     digitalWrite(LEDG, HIGH);
-    bool motorOn = (l % flashRate < (flashRate == 10 ? 9 : flashRate / 2));
+    bool motorOn = (l % flashRate < flashRate * flashRate_deno);
     digitalWrite(motorPin, motorOn ? HIGH : LOW);
     digitalWrite(LEDR, motorOn ? LOW : HIGH);
   }
@@ -269,6 +270,6 @@ void loop() {
   outputDataAsBytes();
 
   l++;
-  if (l > 1000) l = 1;
+  if (l > 4000) l = 1;
   delay(1);
 }
