@@ -1,491 +1,267 @@
-//初期設定
-  //MPU6050 Madgwick filter Test
-  #include <Arduino_LSM9DS1.h>
-  #include <MadgwickAHRS.h>
-  #include <stdlib.h>
-  #include <stdio.h>
-  #define ANALOG_PIN 7
-  Madgwick MadgwickFilter;
+// ===============================
+// ライブラリ・定数定義
+// ===============================
+#include <Arduino_LSM9DS1.h>  // IMU用ライブラリ
+#include <MadgwickAHRS.h>     // 姿勢推定フィルタ
 
-  int in = 5;//ゲームからの入力用変数
-  int in0 = 5;
+#define ANALOG_PIN 7          // 曲げセンサアナログ入力
+#define motorPin 9            // モーター制御用デジタル出力ピン
 
-  float a = 0.1;//水平時のヨー補正係数
-  float p = 0.75;
-  float r = 0.75;
-  float yaw_y = 0.75;
-  float G = 0.8;//Madwickフィルターのゲイン
-  float T = 0.01;//積分時間
-  float c = 0.1;//加速度補正係数
-  float d = 0.1;//速度補正係数
+Madgwick MadgwickFilter;     // Madgwickフィルターのインスタンス
 
-  //磁気オフセット
-  float xmcy = 9.996;
-  float ymcy = -52.420841;
-  float zmcy = 32.338142;
+// ===============================
+// 制御・状態変数
+// ===============================
+int in = 5, in0 = 5;          // シリアル通信による外部入力
+int l = 0;                    // ループカウンタ
+int bend = 0, bend0 = 0;      // 曲げセンサ値（初期基準と現在値）
 
-  //加速度オフセット
-  float xacy = -0.02;
-  float yacy = 0.01;
-  float zacy = 0;
+// ===============================
+// 補正係数（センサノイズ除去・フィルタ調整）
+// ===============================
+float a = 0.1;                // 地磁気補正係数
+float p = 0.75, r = 0.75;     // ピッチ・ロール角の平滑化係数
+float yaw_y = 0.75;           // ヨー角の平滑化係数
+float G = 0.8;                // Madgwickフィルターゲイン
+float T = 0.01;               // 積分周期（秒）
+float c = 0.1, d = 0.1;       // 加速度・速度のフィルタ係数
 
-  //ジャイロオフセット（初期値取得プログラムで計測）
-  float xgcy = 0;
-  float ygcy = 0;
-  float zgcy = 0;
+// ===============================
+// センサオフセット値（補正用）
+// ===============================
+float xmcy = 9.996, ymcy = -52.420841, zmcy = 32.338142;  // 地磁気オフセット
+float xacy = -0.02, yacy = 0.01, zacy = 0;                // 加速度オフセット
+float xgcy = 0, ygcy = 0, zgcy = 0;                       // ジャイロオフセット
 
-  //初期値取得プログラム用変数
-  int l = 0;
+// ===============================
+// 各種センサデータ
+// ===============================
+float xa, ya, za;              // 加速度
+float xa0, ya0, za0;           // 前回加速度
+float xa1 = 0, ya1 = 0, za1 = 1, xa10 = 0, ya10 = 0, za10 = 1; // グローバル加速度とその前回値
+float xg, yg, zg;              // ジャイロ
+float xm, ym, zm;              // 地磁気
 
-  //加速度
-  float xa = 0;
-  float ya = 0;
-  float za = 0;
-  //ひとつ前の加速度
-  float xa0 = 0;
-  float ya0 = 0;
-  float za0 = 0;
-  //グローバル座標変換用の加速度
-  float xa1 = 0;
-  float ya1 = 0;
-  float za1 = 1;
+// ===============================
+// 姿勢角（ピッチ・ロール・ヨー）
+// ===============================
+float pitch, roll, yaw;        // 現在の角度
+float pitch0, roll0, yaw_g0;   // 前回の角度
 
-  float xa10 = 0;
-  float ya10 = 0;
-  float za10 = 1;
+// ===============================
+// ヨー角および初期補正用値
+// ===============================
+float yaw_sim = 0, yaw_s = 0, yaw_sm = 0;
+float yaw_g = 0, yaw_m = 0;
 
-  //ジャイロ
-  float xg = 0;
-  float yg = 0;
-  float zg = 0;
+// ===============================
+// ジャイロ初期値補正積算
+// ===============================
+float xg_sim = 0, yg_sim = 0, zg_sim = 0;
 
-  //地磁気
-  float xm = 0;
-  float ym = 0;
-  float zm = 0;
+// ===============================
+// 速度・位置
+// ===============================
+float xv = 0, yv = 0, zv = 0, xv0 = 0, yv0 = 0, zv0 = 0;
+float x_d = 0, y_d = 0, z_d = 0, x = 0, y = 0, z = 0;
 
-  //ヨー・ピッチ・ロー
-  float pitch = 0;
-  float roll = 0;
-  float yaw = 0;
+// ===============================
+// 振動検出用
+// ===============================
+int baibx, baiby, baibz;
 
-  float pitch0 = 0;
-  float roll0 = 0;
-  float yaw_g0 = 0;
-
-  //ヨー角関連
-  float yaw_sim = 0;//ヨー角の初期値計算用・合計
-  float yaw_s = 0;//ヨー角初期値
-  float yaw_sm = 0;//ヨー角初期値・地磁気
-  float yaw_g = 0;//ヨー角
-  float yaw_m = 0;//ヨー角・地磁気
-
-  //ジャイロ補正用合計
-  float xg_sim = 0;
-  float yg_sim = 0;
-  float zg_sim = 0;
-
-  //速度
-  float xv = 0;
-  float yv = 0;
-  float zv = 0;
-  //ひとつ前の速度
-  float xv0 = 0;
-  float yv0 = 0;
-  float zv0 = 0;
-
-  //移動距離
-  float x_d = 0;
-  float y_d = 0;
-  float z_d = 0;
-  //座標
-  float x = 0;
-  float y = 0;
-  float z = 0;
-
-  const int motorPin = 9; //モータ用のピン設定
-
-  int bend; //曲げセンサの値
-  int bend0;
-
-  //振動検出用
-  int baibx;
-  int baiby;
-  int baibz;
-
-void setup() {
-  Serial.begin(9600);
-  Serial1.begin(9600);
-  //モータ用のピン設定
-  pinMode(motorPin, OUTPUT);
-  while (!Serial1)
-    ;
-   //Serial.println("\nStarted\n");
-
+// ===============================
+// IMU初期化処理
+// ===============================
+void initializeIMU() {
   if (!IMU.begin()) {
-    //Serial.println("Failed to initialize IMU!");
-    while (1)
-      ;
+    while (1);
+  }
+  MadgwickFilter.begin(100);
+  MadgwickFilter.setGain(G);
+}
+
+
+// ===============================
+// センサ初期キャリブレーション
+// ===============================
+void calibrateSensors() {
+  digitalWrite(LEDG, HIGH);
+
+  for (int i = 0; i < 100; i++) {
+    digitalWrite(LEDR, i % 10 < 5 ? LOW : HIGH);
+    readIMUSensors(true);
+    delay(10);
   }
 
-  /*Serial.print("Accelerometer sample rate = ");
-  Serial.print(IMU.accelerationSampleRate());
-  Serial.println("Hz  Acceleration in G's X\tY\tZ");
+  for (int i = 0; i < 500; i++) {
+    digitalWrite(LEDR, i % 100 < 50 ? LOW : HIGH);
+    readIMUSensors(true);
+    yaw_sim += MadgwickFilter.getYaw();
+    xg_sim += xg; yg_sim += yg; zg_sim += zg;
+    delay(10);
+  }
 
-  Serial.print("Gyroscope sample rate = ");
-  Serial.print(IMU.gyroscopeSampleRate());
-  Serial.println("Hz  Gyroscope in degrees/second X\tY\tZ");
+  yaw_s = yaw_sim / 500;
+  yaw_sm = atan2(ym, xm) * 57.324;
+  xgcy = xg_sim / 500;
+  ygcy = yg_sim / 500;
+  zgcy = zg_sim / 500;
+  bend0 = analogRead(ANALOG_PIN);
 
-  Serial.print("Magnetic field sample rate = ");
-  Serial.print(IMU.magneticFieldSampleRate());
-  Serial.println("uT  Magnetic Field in uT X\tY\tZ");*/
-
-  delay(500);
-
-  MadgwickFilter.begin(100);  //100Hz
-  MadgwickFilter.setGain(G);
-  delay(100);
+  for (int i = 0; i < 10; i++) {
+    digitalWrite(LEDG, HIGH); digitalWrite(motorPin, HIGH); delay(50);
+    digitalWrite(LEDG, LOW); digitalWrite(motorPin, LOW); delay(50);
+  }
 }
-void loop() {
-  //初期値取得
-    if (l == 0) {
-      digitalWrite(LEDG, HIGH);
-      for (int i = 0; i < 100; i++) {
-        if (i % 10 < 5) {
-          digitalWrite(LEDR, LOW);
-        } else {
-          digitalWrite(LEDR, HIGH);
-        }
 
-        IMU.readAcceleration(xa, ya, za);
-        IMU.readGyroscope(xg, yg, zg);
-        IMU.readMagneticField(xm, ym, zm);
+// ===============================
+// IMU読み取り関数（補正付き）
+// ===============================
+void readIMUSensors(bool applyOffset) {
+  IMU.readAcceleration(xa, ya, za);
+  IMU.readGyroscope(xg, yg, zg);
+  IMU.readMagneticField(xm, ym, zm);
 
-        xm = xm + xmcy;
-        ym = ym + ymcy;
-        zm = zm + zmcy;
-
-        xg = xg + xgcy;
-        yg = yg + ygcy;
-        zg = zg + zgcy;
-
-        MadgwickFilter.update(xg, yg, zg, xa, ya, za, xm, ym, zm);
-        delay(10);
-      }
-      
-      for (int i = 0; i < 500; i++) {
-        if (i % 100 < 50) {
-          digitalWrite(LEDR, LOW);
-        } else {
-          digitalWrite(LEDR, HIGH);
-        }
-
-        IMU.readAcceleration(xa, ya, za);
-        IMU.readGyroscope(xg, yg, zg);
-        IMU.readMagneticField(xm, ym, zm);
-
-        xm = xm + xmcy;
-        ym = ym + ymcy;
-        zm = zm + zmcy;
-
-        xg = xg + xgcy;
-        yg = yg + ygcy;
-        zg = zg + zgcy;
-
-        MadgwickFilter.update(xg, yg, zg, xa, ya, za, xm, ym, zm);
-
-        yaw_sim = yaw_sim + MadgwickFilter.getYaw();
-
-        xg_sim = xg_sim + xg;
-        yg_sim = yg_sim + yg;
-        zg_sim = zg_sim + zg;
-
-        delay(10);
-      }
-
-      //yaw_s = - atan2(ym,xm) * 57.324;
-      yaw_s = yaw_sim / 500;
-      yaw_sm = atan2(ym,xm)*57.324;
-      xgcy = xg_sim / 500;
-      ygcy = yg_sim / 500;
-      zgcy = zg_sim / 500;
-
-      l = l + 1;
-      bend0 = analogRead(ANALOG_PIN);
-
-      for (int i = 0; i < 10; i++) {
-        digitalWrite(LEDG, HIGH);
-        digitalWrite(motorPin, HIGH);
-        delay(50);
-        digitalWrite(LEDG, LOW);
-        digitalWrite(motorPin, LOW);
-        delay(50);
-      }
-    }
-  //ゲーム入力の応答
-    in0 = in;
-    if(Serial1.available() > 0){
-      in = Serial1.read();
-      if (in != '1' && in != '2' && in != '3' && in != '4' && in != '5') in = in0; 
-    }
-
-    //モータの挙動
-      if (in == '5'){
-        digitalWrite(motorPin, LOW);
-        digitalWrite(LEDR, HIGH);
-        digitalWrite(LEDG, LOW);
-      } 
-      else if (in == '1') {
-        digitalWrite(LEDG, HIGH);
-        if (l % 20 < 3) {
-          digitalWrite(motorPin, HIGH);
-          digitalWrite(LEDR, LOW);
-        }else{
-          digitalWrite(motorPin, LOW);
-          digitalWrite(LEDR, HIGH);
-        }
-      }
-      else if (in == '2') {
-        digitalWrite(LEDG, HIGH);
-        if(l % 10 < 2) {
-          digitalWrite(motorPin, HIGH);
-          digitalWrite(LEDR, LOW);
-        }else{
-          digitalWrite(motorPin, LOW);
-          digitalWrite(LEDR, HIGH);
-        }
-      }
-      else if (in == '3') {
-        digitalWrite(LEDG, HIGH);
-        if(l % 5 < 2) {
-          digitalWrite(motorPin, HIGH);
-          digitalWrite(LEDR, LOW);
-        }else{
-          digitalWrite(motorPin, LOW);
-          digitalWrite(LEDR, HIGH);
-        }
-      }
-      else if (in == '4') {
-        digitalWrite(LEDG, HIGH);
-        if(l % 10 < 9) {
-          digitalWrite(motorPin, HIGH);
-          digitalWrite(LEDR, LOW);
-        }else{
-          digitalWrite(motorPin, LOW);
-          digitalWrite(LEDR, HIGH);
-        }
-      }
-  //曲げセンサの値取得
-    bend = analogRead(ANALOG_PIN) - bend0;
-    if(bend < 8) bend = 0;
-  //１つ前の情報の記憶
-    xa0 = xa;
-    ya0 = ya;
-    za0 = za;
-    xa10 = xa1;
-    ya10 = ya1;
-    za10 = za1;
-    xv0 = xv;
-    yv0 = yv;
-    zv0 = zv;
-    pitch0 = pitch;
-    roll0 = roll;
-    yaw_g0 = yaw_g;
-
-  // 測定値を持ってくる
-    IMU.readAcceleration(xa, ya, za);
-    IMU.readGyroscope(xg, yg, zg);
-    IMU.readMagneticField(xm, ym, zm);
-
-  //オフセット補正
-    xm = xm + xmcy;
-    ym = ym + ymcy;
-    zm = zm + zmcy;
-
+  if (applyOffset) {
+    xm += xmcy; ym += ymcy; zm += zmcy;
+    xg += xgcy; yg += ygcy; zg += zgcy;
+  } else {
+    xm += xmcy; ym += ymcy; zm += zmcy;
     xg = -xg + xgcy;
     yg = -yg + ygcy;
     zg = zg + zgcy - 0.0015;
+    xa += xacy; ya += yacy; za += zacy;
+  }
 
-    xa = xa + xacy;
-    ya = ya + yacy;
-    za = za + zacy;
-  
-  //角度計算
-    //フィルタを通す
-    MadgwickFilter.update(xg, yg, zg, xa, ya, za, xm ,ym, zm);
+  MadgwickFilter.update(xg, yg, zg, xa, ya, za, xm, ym, zm);
+}
 
-    //角度を得る
-    // pitch = -1*MadgwickFilter.getPitch();
-    // roll = MadgwickFilter.getRoll();
-    // yaw_g = -4*(MadgwickFilter.getYaw() - yaw_s);
+// ===============================
+// モータ制御（シリアル入力に応じて）
+// ===============================
+void updateMotorState() {
+  in0 = in;
+  if (Serial1.available() > 0) {
+    in = Serial1.read();
+    if (in < '1' || in > '5') in = in0;
+  }else{
+    in = in0;
+  }
 
-    pitch = -1*MadgwickFilter.getPitch()*p + (1-p)*pitch;
-    roll = MadgwickFilter.getRoll()*r + (1-r)*roll;
-    yaw_g = -1*(MadgwickFilter.getYaw() - yaw_s)*yaw_y + (1-yaw_y)*yaw_g0;
+  int flashRate = 0;
+  if (in == '1') flashRate = 20;
+  else if (in == '2') flashRate = 12;
+  else if (in == '3') flashRate = 5;
+  else if (in == '4') flashRate = 10;
+  else{
+    digitalWrite(motorPin, LOW); 
+    digitalWrite(LEDR, HIGH); 
+    digitalWrite(LEDG, LOW); 
+    flashRate = 0;
+    //return;
+  }
 
-    //if(fabsf(pitch) < 0.5) pitch = 0;
-    //if(fabsf(roll) < 0.5) roll = 0;
+  if (flashRate > 0) {
+    digitalWrite(LEDG, HIGH);
+    bool motorOn = (l % flashRate < (flashRate == 10 ? 9 : flashRate / 2));
+    digitalWrite(motorPin, motorOn ? HIGH : LOW);
+    digitalWrite(LEDR, motorOn ? LOW : HIGH);
+  }
+}
 
-    //地磁気による角度を得る
-    yaw_m = -1*(atan2(ym,xm)*57.324 - yaw_sm);
+// ===============================
+// 姿勢角の更新（Madgwick出力）
+// ===============================
+void updateOrientation() {
+  pitch = -1 * MadgwickFilter.getPitch() * p + (1 - p) * pitch;
+  roll = MadgwickFilter.getRoll() * r + (1 - r) * roll;
+  yaw_g = -1 * (MadgwickFilter.getYaw() - yaw_s) * yaw_y + (1 - yaw_y) * yaw_g0;
+  yaw_m = -1 * (atan2(ym, xm) * 57.324 - yaw_sm);
+}
 
-    // //地磁気角度の補正
-    // if(yaw_m < -180){
-    //   yaw_m = 360 + yaw_m;
-    // }
-    // if(yaw_m > 180){
-    //   yaw_m = yaw_m - 360;
-    // }
+// ===============================
+// グローバル座標への加速度変換
+// ===============================
+float computeGlobalAccelX() {
+  return (xa * cos(pitch * DEG_TO_RAD) + za * cos((pitch + 90) * DEG_TO_RAD) * cos(roll * DEG_TO_RAD)) * cos(yaw_g * DEG_TO_RAD) +
+         (ya * cos(roll * DEG_TO_RAD) + za * cos((roll + 90) * DEG_TO_RAD) * cos(pitch * DEG_TO_RAD)) * sin(yaw_g * DEG_TO_RAD);
+}
+float computeGlobalAccelY() {
+  return (xa * cos(pitch * DEG_TO_RAD) + za * cos((pitch + 90) * DEG_TO_RAD) * cos(roll * DEG_TO_RAD)) * sin(yaw_g * DEG_TO_RAD) +
+         (ya * cos(roll * DEG_TO_RAD) + za * cos((roll + 90) * DEG_TO_RAD) * cos(pitch * DEG_TO_RAD)) * cos(yaw_g * DEG_TO_RAD);
+}
+float computeGlobalAccelZ() {
+  return xa * sin(pitch * DEG_TO_RAD) + ya * sin(roll * DEG_TO_RAD) + za * cos(roll * DEG_TO_RAD) * cos(pitch * DEG_TO_RAD);
+}
 
-    // //ヨー角の地磁気を用いた水平時の補正  
-    // if(pow(pitch,2)< 1 && pow(roll,2) < 3){
-    //   yaw_s = yaw_s + yaw_m - yaw_g;
-    //   yaw_g = yaw_m;
-    // }else if(pow(pitch,2)< 10 && pow(roll,2) < 10){
-    //   yaw_s = yaw_s + a*(yaw_m - yaw_g);
-    // }
+// ===============================
+// 加速度の更新と振動検出
+// ===============================
+void updateAcceleration() {
+  xa = c * xa + (1 - c) * xa0;
+  ya = c * ya + (1 - c) * ya0;
+  za = c * za + (1 - c) * za0;
 
-    // //ピッチが９０度付近の動作の補正
-    // if(fabsf(pitch)> 80 ){
-    //   pitch = (180 - fabsf(pitch))*(pitch/(fabsf(pitch)));
-    //   roll = (180 - fabsf(roll))*(roll/(fabsf(roll)));
-    // }
+  xa1 = computeGlobalAccelX();
+  ya1 = computeGlobalAccelY();
+  za1 = computeGlobalAccelZ();
 
-  //位置情報計算
-    xa = c * xa + (1-c)*xa0;
-    ya = c * ya + (1-c)*ya0;
-    za = c * za + (1-c)*za0;
+  xa1 = c * xa1 + (1 - c) * xa10;
+  ya1 = c * ya1 + (1 - c) * ya10;
+  za1 = c * za1 + (1 - c) * za10;
 
-    // //角速度をなくす
-    // // if(fabsf(xg) > 150){
-    // //   ya = ya - 0.0001*xg;
-    // //   za = za - 0.0001*xg;
-    // // }
-    // // if(fabsf(yg) > 150){
-    // //    xa = xa - 0.0001*yg;
-    // //    za = za - 0.0001*yg;
-    // // }
+  baibx = fabsf(xa1) > 0.5;
+  baiby = fabsf(ya1) > 0.5;
+  baibz = fabsf(za1 - za10) > 0.04 ? 0 : 0;
+}
 
-    //加速度のグローバル座標への変換（三角関数編）
-    za1 = xa*sin(pitch*0.017) + ya*sin(roll*0.017) + za*cos(roll*0.017)*cos(pitch*0.017);
-    xa1 = (xa*cos(pitch*0.017) + za*cos((pitch + 90)*0.017)*cos(roll*0.017))*cos(yaw_g*0.017) + (ya*cos(roll*0.017) + za*cos((roll + 90)*0.017)*cos(pitch*0.017))*sin(yaw_g*0.017);
-    ya1 = (xa*cos(pitch*0.017) + za*cos((pitch + 90)*0.017)*cos(roll*0.017))*sin(yaw_g*0.017) + (ya*cos(roll*0.017) + za*cos((roll + 90)*0.017)*cos(pitch*0.017))*cos(yaw_g*0.017);
-  
-    //加速度のフィルター
-    xa1 = c * xa1 + (1-c)*xa10;
-    ya1 = c * ya1 + (1-c)*ya10;
-    za1 = c * za1 + (1-c)*za10;
+// ===============================
+// データ送信（バイト列形式）
+// ===============================
+void outputDataAsBytes() {
+  float data[3] = { pitch, roll, yaw_g };
+  int16_t bend_short = bend;
+  uint8_t buffer[sizeof(data) + sizeof(bend_short)];
 
-    if (fabsf(xa1) > 0.5) baibx = 1;
-    else if (fabsf(xa1) < 0.5) baibx = 0;
+  memcpy(buffer, &data, sizeof(data));
+  memcpy(buffer + sizeof(data), &bend_short, sizeof(bend_short));
+  Serial1.write(buffer, sizeof(buffer));
+}
 
-    if (fabsf(ya1) > 0.5) baiby = 1;
-    else if (fabsf(ya1) < 0.5) baibx = 0;
+// ===============================
+// 初期設定処理
+// ===============================
+void setup() {
+  Serial.begin(9600);
+  while (!Serial); 
+  Serial1.begin(9600);
+  pinMode(motorPin, OUTPUT);
+  initializeIMU();
+  delay(100);
+}
 
-    if (fabsf(za1 - za10)  < 0.04) baibz = 0;
-    else if (fabsf(za1 - za10) > 0.04){
-      baibz = 0;
-      // yaw_s = yaw_g / 4;
-    };
+// ===============================
+// メインループ処理
+// ===============================
+void loop() {
+  if (l == 0) calibrateSensors();
 
-    // //速度の計算
-    // xv = xv + 0.5*T*9.80665*100*(xa1 + xa10);
-    // yv = yv + 0.5*T*9.80665*100*(ya1 + ya10);
-    // zv = zv + 0.5*T*9.80665*100*(za1 + za10 - 2);
+  bend = analogRead(ANALOG_PIN) - bend0;
+  if (bend < 8) bend = 0;
 
-    // //減速の処理
-    // if ((xv - xv0)*xv < 0){
-    //   xv = xv0;
-    //  //Serial.print("HIIIIIIII");
-    // } 
-    // if ((yv - yv0)*yv < 0){
-    //   yv = yv0;
-    //   //Serial.print("HIIIIIIII");
-    // } 
-    // if ((zv - zv0)*zv < 0){
-    //   zv = zv0;
-    //   //Serial.print("HIIIIIIII");
-    // }
-  
-    // //静止時の処理
-    // if (fabsf(xa1 - xa10) < 0.002 && fabsf(xa1) < 0.455) {
-    //   xv = 0;
-    //   //xv0 = 0;
-    //   //Serial.print("HIIIIIIII");
-    // }
-    // if (fabsf(ya1 - ya10) < 0.002 && fabsf(ya1) < 0.455) {
-    //   yv = 0;
-    //   //yv0 = 0;
-    //   //Serial.print("HIIIIIIII");
-    // }
-    // if (fabsf(za1 - za10) < 0.002 && fabsf(za1 - 1) < 0.1) {
-    //   zv = 0;
-    //   //zv0 = 0;
-    //   //Serial.print("HIIIIIIII");
-    // }
+  xa0 = xa; ya0 = ya; za0 = za;
+  xa10 = xa1; ya10 = ya1; za10 = za1;
+  xv0 = xv; yv0 = yv; zv0 = zv;
+  pitch0 = pitch; roll0 = roll; yaw_g0 = yaw_g;
 
-    // // if(fabsf(roll - roll0) > 0.1){
-    // //   yv = 0;
-    // //   zv = 0;
-    // // }
-    // // if(fabsf(pitch - pitch0) > 0.1){
-    // //   xv = 0;
-    // //   zv = 0;
-    // // }
+  readIMUSensors(false);
+  updateMotorState();
+  updateOrientation();
+  updateAcceleration();
+  outputDataAsBytes();
 
-    // //速度のフィルター
-    // xv = d*xv + (1 - d)*xv0;
-    // yv = d*yv + (1 - d)*yv0;
-    // zv = d*zv + (1 - d)*zv0;
-  
-    // //移動距離の計算
-    // x_d = 0.5*T*(xv + xv0);
-    // y_d = 0.5*T*(yv + yv0);
-    // z_d = 0.5*T*(zv + zv0);
-  
-
-    // //座標の計算＆フィルター
-    // x = x + x_d;
-    // y = y + y_d;
-    // z = z + z_d;
-
-
-  //値出力
-    Serial1.print(pitch);
-    Serial1.print(",");
-    Serial1.print(roll);
-    Serial1.print(",");
-    Serial1.print(yaw_g);
-    // Serial1.print(",");
-    // Serial1.print(x);
-    // Serial1.print(",");
-    // Serial1.print(y);
-    // Serial1.print(",");
-    // Serial1.print(z);
-    Serial1.print(",");
-    Serial1.print(bend);
-    Serial1.print(",");
-    Serial1.print(baibz);
-    Serial1.println("");
-
-    // Serial.print(-pitch);
-    // Serial.print(",");
-    // Serial.print(roll);
-    // Serial.print(",");
-    // Serial.print(yaw_g);
-    // Serial.print(",");
-    // // Serial.print(x);
-    // // Serial.print(",");
-    // // Serial.print(y);
-    // // Serial.print(",");
-    // //Serial.print(in);
-    // //Serial.print(",");
-    // Serial.print(bend);
-    // Serial.print(",");
-    // Serial.print(baibz);
-    // Serial.println("");
-  l = l + 1;//ループカウント用
+  l++;
   if (l > 1000) l = 1;
-
-  delay(10);
+  delay(1);
 }
