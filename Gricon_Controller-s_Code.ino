@@ -74,10 +74,13 @@ int baibx, baiby, baibz;
 // IMU初期化処理
 // ===============================
 void initializeIMU() {
-  if (!IMU.begin()) while (1);
-  MadgwickFilter.begin(100);  // サンプリングレート100Hz
+  if (!IMU.begin()) {
+    while (1);
+  }
+  MadgwickFilter.begin(100);
   MadgwickFilter.setGain(G);
 }
+
 
 // ===============================
 // センサ初期キャリブレーション
@@ -142,21 +145,29 @@ void updateMotorState() {
   if (Serial1.available() > 0) {
     in = Serial1.read();
     if (in < '1' || in > '5') in = in0;
+  }else{
+    in = in0;
   }
 
   int flashRate = 0;
   if (in == '1') flashRate = 20;
-  else if (in == '2') flashRate = 10;
+  else if (in == '2') flashRate = 12;
   else if (in == '3') flashRate = 5;
   else if (in == '4') flashRate = 10;
-  else if (in == '5') {
-    digitalWrite(motorPin, LOW); digitalWrite(LEDR, HIGH); digitalWrite(LEDG, LOW); return;
+  else{
+    digitalWrite(motorPin, LOW); 
+    digitalWrite(LEDR, HIGH); 
+    digitalWrite(LEDG, LOW); 
+    flashRate = 0;
+    //return;
   }
 
-  digitalWrite(LEDG, HIGH);
-  bool motorOn = (l % flashRate < (flashRate == 10 ? 9 : flashRate / 2));
-  digitalWrite(motorPin, motorOn ? HIGH : LOW);
-  digitalWrite(LEDR, motorOn ? LOW : HIGH);
+  if (flashRate > 0) {
+    digitalWrite(LEDG, HIGH);
+    bool motorOn = (l % flashRate < (flashRate == 10 ? 9 : flashRate / 2));
+    digitalWrite(motorPin, motorOn ? HIGH : LOW);
+    digitalWrite(LEDR, motorOn ? LOW : HIGH);
+  }
 }
 
 // ===============================
@@ -215,7 +226,6 @@ void outputDataAsBytes() {
 
   memcpy(buffer, &data, sizeof(data));
   memcpy(buffer + sizeof(data), &bend_short, sizeof(bend_short));
-
   Serial1.write(buffer, sizeof(buffer));
 }
 
@@ -224,6 +234,7 @@ void outputDataAsBytes() {
 // ===============================
 void setup() {
   Serial.begin(9600);
+  while (!Serial); 
   Serial1.begin(9600);
   pinMode(motorPin, OUTPUT);
   initializeIMU();
