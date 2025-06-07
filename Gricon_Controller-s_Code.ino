@@ -220,21 +220,28 @@ void updateAcceleration() {
 // データ送信（バイト列形式）
 // ===============================
 void outputDataAsBytes() {
-  float data[3] = { pitch, roll, yaw_g };
-  int16_t bend_short = bend;
-  uint8_t buffer[sizeof(data) + sizeof(bend_short)];
+  int16_t angle_pitch = (int16_t)(pitch * 10.0);  // 小数第1位まで保持
+  int16_t angle_roll  = (int16_t)(roll * 10.0);
+  int16_t angle_yaw   = (int16_t)(yaw_g * 10.0);
+  int16_t bend_short  = (int16_t)bend;
 
-  memcpy(buffer, &data, sizeof(data));
-  memcpy(buffer + sizeof(data), &bend_short, sizeof(bend_short));
+  uint8_t buffer[sizeof(int16_t) * 4];
+
+  memcpy(buffer,                &angle_pitch, sizeof(int16_t));
+  memcpy(buffer + sizeof(int16_t), &angle_roll,  sizeof(int16_t));
+  memcpy(buffer + 2 * sizeof(int16_t), &angle_yaw,   sizeof(int16_t));
+  memcpy(buffer + 3 * sizeof(int16_t), &bend_short,  sizeof(int16_t));
+
+  Serial1.write('S'); // ヘッダー
   Serial1.write(buffer, sizeof(buffer));
 }
+
 
 // ===============================
 // 初期設定処理
 // ===============================
 void setup() {
   Serial.begin(9600);
-  while (!Serial); 
   Serial1.begin(9600);
   pinMode(motorPin, OUTPUT);
   initializeIMU();
