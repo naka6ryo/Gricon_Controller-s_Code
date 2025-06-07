@@ -256,7 +256,7 @@ void loop() {
   if (l == 0) calibrateSensors();
 
   bend = analogRead(ANALOG_PIN) - bend0;
-  if (bend < 8) bend = 0;
+  if (bend < 10) bend = 0;
 
   xa0 = xa; ya0 = ya; za0 = za;
   xa10 = xa1; ya10 = ya1; za10 = za1;
