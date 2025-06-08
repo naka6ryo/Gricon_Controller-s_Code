@@ -4,6 +4,9 @@
 
 このArduinoプログラムは、IMU（姿勢センサ）、曲げセンサ、モーターを統合し、姿勢推定・屈曲検出・振動出力を通じて新しい入力体験を提供します。
 
+## 🎥 デモ動画
+
+[![Gricon デモ動画](https://img.youtube.com/vi/qLPBSaw1i-E/0.jpg)](https://youtu.be/qLPBSaw1i-E?si=rnXXbKDZcDVdmmQi)
 
 ---
 
