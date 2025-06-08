@@ -4,6 +4,7 @@
 
 このArduinoプログラムは、IMU（姿勢センサ）、曲げセンサ、モーターを統合し、姿勢推定・屈曲検出・振動出力を通じて新しい入力体験を提供します。
 
+
 ---
 
 ## 🔗 関連リンク
@@ -40,7 +41,7 @@
 
 以下は、本デバイスの回路図です（Arduino Nano 33 BLE + 曲げセンサ + モータ + Bluetooth構成）：
 
-![Gricon回路図](images/c00410df-c3fc-4411-b4c9-54e9863c9ef1.png)
+![Gricon回路図](https://github.com/naka6ryo/Gricon_Controller-s_Code/blob/main/Gricon%20%E5%9B%9E%E8%B7%AF%E5%9B%B3.png)
 
 ---
 
