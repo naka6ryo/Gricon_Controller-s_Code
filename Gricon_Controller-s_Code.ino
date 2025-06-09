@@ -2,7 +2,7 @@
 // ライブラリ・定数定義
 // ===============================
 #include <Arduino_LSM9DS1.h>  // IMU用ライブラリ
-#include <MadgwickAHRS.h>     // 姿勢推定フィルタ
+#include <MadgwickAHRS.h>  // 姿勢推定フィルタ
 
 #define ANALOG_PIN 7          // 曲げセンサアナログ入力
 #define motorPin 9            // モーター制御用デジタル出力ピン
@@ -19,7 +19,7 @@ int bend0 = 0, bend_past = 0, bend = 0;      // 曲げセンサ値（初期基�
 // ===============================
 // 補正係数（センサノイズ除去・フィルタ調整）
 // ===============================
-float a = 0.1;                // 地磁気補正係数
+float a = 0.1;                // 地磁気補正係数（未使用）
 float p = 0.75, r = 0.75;     // ピッチ・ロール角の平滑化係数
 float yaw_y = 0.75;           // ヨー角の平滑化係数
 float b = 0.5;                //曲げセンサの平滑化係数
@@ -82,34 +82,39 @@ void initializeIMU() {
   MadgwickFilter.setGain(G);
 }
 
+// ===============================
+// チルト補正付きヨー角計算
+// ===============================
+float computeTiltCompensatedYaw(float xm, float ym, float zm, float pitch_deg, float roll_deg) {
+  float pitch = pitch_deg * DEG_TO_RAD;
+  float roll = roll_deg * DEG_TO_RAD;
+  float xm_comp = xm * cos(pitch) + zm * sin(pitch);
+  float ym_comp = xm * sin(roll) * sin(pitch) + ym * cos(roll) - zm * sin(roll) * cos(pitch);
+  return atan2(ym_comp, xm_comp) * 180.0 / PI;
+}
 
 // ===============================
 // センサ初期キャリブレーション
 // ===============================
 void calibrateSensors() {
   digitalWrite(LEDG, HIGH);
-
   for (int i = 0; i < 100; i++) {
     digitalWrite(LEDR, i % 10 < 5 ? LOW : HIGH);
     readIMUSensors(true);
     delay(10);
   }
-
   for (int i = 0; i < 500; i++) {
     digitalWrite(LEDR, i % 100 < 50 ? LOW : HIGH);
     readIMUSensors(true);
-    yaw_sim += MadgwickFilter.getYaw();
+    yaw_sim += computeTiltCompensatedYaw(xm, ym, zm, 0, 0);
     xg_sim += xg; yg_sim += yg; zg_sim += zg;
     delay(10);
   }
-
-  yaw_s = yaw_sim / 500;
-  yaw_sm = atan2(ym, xm) * 57.324;
+  yaw_sm = yaw_sim / 500;
   xgcy = xg_sim / 500;
   ygcy = yg_sim / 500;
   zgcy = zg_sim / 500;
   bend0 = analogRead(ANALOG_PIN);
-
   for (int i = 0; i < 10; i++) {
     digitalWrite(LEDG, HIGH); digitalWrite(motorPin, HIGH); delay(50);
     digitalWrite(LEDG, LOW); digitalWrite(motorPin, LOW); delay(50);
@@ -124,18 +129,18 @@ void readIMUSensors(bool applyOffset) {
   IMU.readGyroscope(xg, yg, zg);
   IMU.readMagneticField(xm, ym, zm);
 
+  xm += xmcy; ym += ymcy; zm += zmcy;
+
   if (applyOffset) {
-    xm += xmcy; ym += ymcy; zm += zmcy;
     xg += xgcy; yg += ygcy; zg += zgcy;
   } else {
-    xm += xmcy; ym += ymcy; zm += zmcy;
     xg = -xg + xgcy;
     yg = -yg + ygcy;
     zg = zg + zgcy - 0.0015;
     xa += xacy; ya += yacy; za += zacy;
   }
 
-  MadgwickFilter.update(xg, yg, zg, xa, ya, za, xm, ym, zm);
+  MadgwickFilter.updateIMU(xg, yg, zg, xa, ya, za); // ← 地磁気なしの6軸姿勢推定
 }
 
 // ===============================
@@ -161,7 +166,6 @@ void updateMotorState() {
     digitalWrite(LEDR, HIGH); 
     digitalWrite(LEDG, LOW); 
     flashRate = 0;
-    //return;
   }
 
   if (flashRate > 0) {
@@ -173,13 +177,13 @@ void updateMotorState() {
 }
 
 // ===============================
-// 姿勢角の更新（Madgwick出力）
+// 姿勢角の更新（Madgwick出力 + チルト補正磁気ヨー角）
 // ===============================
 void updateOrientation() {
   pitch = -1 * MadgwickFilter.getPitch() * p + (1 - p) * pitch;
-  roll = MadgwickFilter.getRoll() * r + (1 - r) * roll;
-  yaw_g = -1 * (MadgwickFilter.getYaw() - yaw_s) * yaw_y + (1 - yaw_y) * yaw_g0;
-  yaw_m = -1 * (atan2(ym, xm) * 57.324 - yaw_sm);
+  roll  =      MadgwickFilter.getRoll()  * r + (1 - r) * roll;
+  float yaw_tc = computeTiltCompensatedYaw(xm, ym, zm, pitch, roll);
+  yaw_g = -1 * (yaw_tc - yaw_sm) * yaw_y + (1 - yaw_y) * yaw_g0;
 }
 
 // ===============================
@@ -222,24 +226,20 @@ void updateAcceleration() {
 // データ送信（バイト列形式）
 // ===============================
 void outputDataAsBytes() {
-  int16_t angle_pitch = (int16_t)(pitch * 10.0);  // 小数第1位まで保持
+  int16_t angle_pitch = (int16_t)(pitch * 10.0);
   int16_t angle_roll  = (int16_t)(roll * 10.0);
   int16_t angle_yaw   = (int16_t)(yaw_g * 10.0);
-  // 出力用bendにクランプを適用
-  uint8_t bend_to_send = constrain((int)bend, 0, 20); 
-
+  uint8_t bend_to_send = constrain((int)bend, 0, 20);
 
   uint8_t buffer[sizeof(int16_t) * 3 + sizeof(uint8_t)];
+  memcpy(buffer, &angle_pitch, sizeof(int16_t));
+  memcpy(buffer + sizeof(int16_t), &angle_roll, sizeof(int16_t));
+  memcpy(buffer + 2 * sizeof(int16_t), &angle_yaw, sizeof(int16_t));
+  memcpy(buffer + 3 * sizeof(int16_t), &bend_to_send, sizeof(uint8_t));
 
-  memcpy(buffer,                &angle_pitch, sizeof(int16_t));
-  memcpy(buffer + sizeof(int16_t), &angle_roll,  sizeof(int16_t));
-  memcpy(buffer + 2 * sizeof(int16_t), &angle_yaw,   sizeof(int16_t));
-  memcpy(buffer + 3 * sizeof(int16_t), &bend_to_send,  sizeof(uint8_t));
-
-  Serial1.write('S'); // ヘッダー
+  Serial1.write('S');
   Serial1.write(buffer, sizeof(buffer));
 }
-
 
 // ===============================
 // 初期設定処理
@@ -257,10 +257,10 @@ void setup() {
 // ===============================
 void loop() {
   if (l == 0) calibrateSensors();
-  
+
   bend_past = bend;
   bend = analogRead(ANALOG_PIN) - bend0;
-  bend = b*bend + (1 - b)*bend_past;
+  bend = b * bend + (1 - b) * bend_past;
 
   xa0 = xa; ya0 = ya; za0 = za;
   xa10 = xa1; ya10 = ya1; za10 = za1;
