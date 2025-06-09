@@ -1,5 +1,6 @@
 {
   "sketch": "Gricon_Controller-s_Code.ino",
   "board": "arduino:mbed_nano:nano33ble",
-  "port": "COM7"
+  "port": "COM7",
+  "output": "../build"
 }
