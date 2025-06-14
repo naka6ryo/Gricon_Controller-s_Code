@@ -1,5 +1,13 @@
 {
+<<<<<<< HEAD
     "port": "COM7",
     "board": "arduino:mbed_nano:nano33ble",
     "sketch": "Gricon_Controller-s_Code.ino"
 }
+=======
+  "sketch": "Gricon_Controller-s_Code.ino",
+  "board": "arduino:mbed_nano:nano33ble",
+  "port": "COM7",
+  "output": "../build"
+}
+>>>>>>> abc349773cff232656991268f1a065771671bf2c
