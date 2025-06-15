@@ -110,10 +110,18 @@ void readIMUSensors(bool applyOffset) {
   IMU.readGyroscope(gyro[0], gyro[1], gyro[2]);
   IMU.readMagneticField(mag[0], mag[1], mag[2]);
 
+  // 地磁気のオフセット・スケーリング補正
   for (int i = 0; i < 3; i++) {
     mag[i] = (mag[i] - mag_offset[i]) * mag_scale[i];
   }
 
+  // ★ 地磁気ベクトルの正規化を追加（安全チェック付き）★
+  float mag_norm = sqrt(mag[0]*mag[0] + mag[1]*mag[1] + mag[2]*mag[2]);
+  if (mag_norm > 0.01) {
+    for (int i = 0; i < 3; i++) mag[i] /= mag_norm;
+  }
+
+  // ジャイロ・加速度のオフセット補正
   if (applyOffset) {
     for (int i = 0; i < 3; i++) gyro[i] += gyro_offset[i];
   } else {
@@ -123,8 +131,34 @@ void readIMUSensors(bool applyOffset) {
     for (int i = 0; i < 3; i++) acc[i] += acc_offset[i];
   }
 
-  MadgwickFilter.update(gyro[0], gyro[1], gyro[2], acc[0], acc[1], acc[2], mag[0], mag[1], mag[2]);
+  // Madgwickフィルター更新
+  MadgwickFilter.update(
+    gyro[0], gyro[1], gyro[2],
+    acc[0], acc[1], acc[2],
+    mag[0], mag[1], mag[2]
+  );
 }
+
+// ===============================
+// ピッチに応じたゲインの変化
+// ===============================
+float computeDynamicGain(float pitch_deg) {
+  // ゲインの範囲（最小〜最大）
+  float beta_min = 0.001;
+  float beta_max = 0.7;
+
+  // ピッチ角を0〜90°に正規化（対称に扱う）
+  float abs_pitch = fabs(pitch_deg);
+  float normalized = constrain(abs_pitch / 90.0, 0.0, 1.0);
+
+  // 累乗型の急激な減衰
+  float decay = pow((1.0 - normalized), 8);  // (1 - x)^8 で急減衰
+  float beta = beta_min + (beta_max - beta_min) * decay;
+
+  return constrain(beta, beta_min, beta_max);
+}
+
+
 
 // ===============================
 // 姿勢角（ピッチ・ロール・ヨー）更新
@@ -134,6 +168,10 @@ void updateOrientation() {
   roll = MadgwickFilter.getRoll() * r + (1 - r) * roll;
   yaw_g = -1 * (MadgwickFilter.getYaw() - yaw_s) * yaw_y + (1 - yaw_y) * yaw_g0;
   yaw_m = -1 * (atan2(mag[1], mag[0]) * 57.324 - yaw_sm);
+
+  // ピッチに応じて動的ゲイン設定 
+  float dynamicGain = computeDynamicGain(pitch);
+  MadgwickFilter.setGain(dynamicGain);
 }
 
 // ===============================
