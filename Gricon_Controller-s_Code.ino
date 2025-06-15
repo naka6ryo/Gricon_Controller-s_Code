@@ -17,7 +17,7 @@ Madgwick MadgwickFilter;      // Madgwickフィルタのインスタンス作成
 // ===============================
 int in = 5, in0 = 5;           // シリアル入力値（前回値と現在値）
 int l = 0;                     // メインループカウンタ
-int bend0 = 0, bend_past = 0, bend = 0; // 曲げセンサ値（初期基準・過去・現在）
+float bend0 = 0, bend_past = 0, bend = 0; // 曲げセンサ値（初期基準・過去・現在）
 
 // ===============================
 // フィルタリング・補正係数
@@ -25,7 +25,7 @@ int bend0 = 0, bend_past = 0, bend = 0; // 曲げセンサ値（初期基準・�
 float a = 0.1;                 // 地磁気補正係数
 float p = 0.5, r = 0.5;        // ピッチ・ロール平滑化係数
 float yaw_y = 0.5;             // ヨー角平滑化係数
-float b = 0.5;                 // 曲げセンサ平滑化係数
+float b = 0.1;                 // 曲げセンサ平滑化係数
 float G = 0.7;                 // Madgwickフィルタゲイン
 float T = 0.01;                // サンプリング周期（秒）
 float c = 0.1, d = 0.1;        // 加速度・速度のフィルタ係数
@@ -262,13 +262,13 @@ void outputDataAsBytes() {
   int16_t angle_pitch = (int16_t)(pitch * 10.0);
   int16_t angle_roll  = (int16_t)(roll * 10.0);
   int16_t angle_yaw   = (int16_t)(yaw_g * 10.0);
-  uint8_t bend_to_send = constrain((int)bend, 0, 20); 
+  int16_t bend_to_send = (int16_t)(bend * 10.0);  
 
-  uint8_t buffer[sizeof(int16_t) * 3 + sizeof(uint8_t)];
+  uint8_t buffer[sizeof(int16_t) * 4];
   memcpy(buffer, &angle_pitch, sizeof(int16_t));
   memcpy(buffer + sizeof(int16_t), &angle_roll, sizeof(int16_t));
   memcpy(buffer + 2 * sizeof(int16_t), &angle_yaw, sizeof(int16_t));
-  memcpy(buffer + 3 * sizeof(int16_t), &bend_to_send, sizeof(uint8_t));
+  memcpy(buffer + 3 * sizeof(int16_t), &bend_to_send, sizeof(int16_t));
 
   Serial1.write('S');  // ヘッダ送信
   Serial1.write(buffer, sizeof(buffer));
