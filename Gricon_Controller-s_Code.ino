@@ -76,8 +76,7 @@ void initializeIMU() {
 // ===============================
 void calibrateSensors() {
   digitalWrite(LEDG, HIGH);
-
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 300; i++) {
     digitalWrite(LEDR, i % 10 < 5 ? LOW : HIGH);
     readIMUSensors(true);
     delay(10);
