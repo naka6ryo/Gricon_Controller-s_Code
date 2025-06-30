@@ -26,15 +26,19 @@ float a = 0.1;                 // 地磁気補正係数
 float p = 0.5, r = 0.5;        // ピッチ・ロール平滑化係数
 float yaw_y = 0.5;             // ヨー角平滑化係数
 float b = 0.1;                 // 曲げセンサ平滑化係数
-float G = 0.4;                 // Madgwickフィルタゲイン
+float G = 0.8;                 // Madgwickフィルタゲイン
 float T = 0.01;                // サンプリング周期（秒）
 float c = 0.1, d = 0.1;        // 加速度・速度のフィルタ係数
 
 // ===============================
 // センサ補正用のオフセット・スケール
 // ===============================
-float mag_offset[3] = { -2.4902345, 44.781494, -3.540039 }; // 地磁気オフセット
-float mag_scale[3]  = { 1.0323736, 0.9979383, 0.9715412 };  // 地磁気スケール補正
+float mag_offset[3] = { 6.1664, 49.7413, -17.4410 }; // 地磁気オフセット
+float mag_correction[3][3] = {
+  { 53.8319, -1.9108,  1.3612 },
+  { -1.9108, 48.0295,  1.8835 },
+  {  1.3612,  1.8835, 54.9269 }
+};// 地磁気スケール補正
 float acc_offset[3] = { -0.02, 0.01, 0.0 };                 // 加速度オフセット
 float gyro_offset[3] = { 0.0, 0.0, 0.0 };                   // ジャイロオフセット（初期補正で決定）
 
@@ -91,7 +95,17 @@ void calibrateSensors() {
   }
 
   yaw_s = yaw_sim / 500.0;
-  yaw_sm = atan2(mag[1], mag[0]) * 57.324;
+  // ★ 姿勢依存の地磁気補正による初期ヨー角計算（yaw_sm）
+  float pitch_rad = pitch * DEG_TO_RAD;
+  float roll_rad  = roll  * DEG_TO_RAD;
+
+  float mx_h = mag[0] * cos(pitch_rad) + mag[2] * sin(pitch_rad);
+  float my_h = mag[0] * sin(roll_rad) * sin(pitch_rad)
+            + mag[1] * cos(roll_rad)
+            - mag[2] * sin(roll_rad) * cos(pitch_rad);
+
+  yaw_sm = atan2(my_h, mx_h) * 180.0 / PI;
+
   for (int i = 0; i < 3; i++) gyro_offset[i] = gyro_sim[i] / 500.0;
   bend0 = analogRead(ANALOG_PIN);
 
@@ -109,9 +123,18 @@ void readIMUSensors(bool applyOffset) {
   IMU.readGyroscope(gyro[0], gyro[1], gyro[2]);
   IMU.readMagneticField(mag[0], mag[1], mag[2]);
 
-  // 地磁気のオフセット・スケーリング補正
+  // 一時変数に地磁気読み取り値を保存
+  float mag_raw[3];
   for (int i = 0; i < 3; i++) {
-    mag[i] = (mag[i] - mag_offset[i]) * mag_scale[i];
+    mag_raw[i] = mag[i] - mag_offset[i];
+  }
+
+  // 楕円体補正（A行列適用：mag = A × (raw - offset)）
+  for (int i = 0; i < 3; i++) {
+    mag[i] = 0;
+    for (int j = 0; j < 3; j++) {
+      mag[i] += mag_correction[i][j] * mag_raw[j];
+    }
   }
 
   // ★ 地磁気ベクトルの正規化を追加（安全チェック付き）★
@@ -145,9 +168,36 @@ void readIMUSensors(bool applyOffset) {
 void updateOrientation() {
   pitch = -1 * MadgwickFilter.getPitch() * p + (1 - p) * pitch;
   roll = MadgwickFilter.getRoll() * r + (1 - r) * roll;
-  yaw_g = -1 * (MadgwickFilter.getYaw() - yaw_s) * yaw_y + (1 - yaw_y) * yaw_g0;
-  yaw_m = -1 * (atan2(mag[1], mag[0]) * 57.324 - yaw_sm);
+
+  // 地磁気ヨー角の姿勢依存補正（正面基準）計算
+  float pitch_rad = pitch * DEG_TO_RAD;
+  float roll_rad  = roll * DEG_TO_RAD;
+
+  float mx_h = mag[0] * cos(pitch_rad) + mag[2] * sin(pitch_rad);
+  float my_h = mag[0] * sin(roll_rad) * sin(pitch_rad)
+             + mag[1] * cos(roll_rad)
+             - mag[2] * sin(roll_rad) * cos(pitch_rad);
+
+  // ★ 現在のヨー角（±180°範囲）
+  float yaw_now = atan2(my_h, mx_h) * 180.0 / PI - yaw_sm;
+
+  //  [-180, 180] 範囲にラップ（wrap-around）
+  if (yaw_now > 180.0) yaw_now -= 360.0;
+  if (yaw_now < -180.0) yaw_now += 360.0;
+
+  // ★ 平滑化
+  yaw_m = yaw_now * yaw_y + yaw_g0 * (1 - yaw_y);
+
+  // ★ 差分（±180°を跨ぐとき用の調整）
+  float delta_yaw = yaw_m - yaw_g0;
+  if (delta_yaw > 350) delta_yaw -= 360.0;
+  if (delta_yaw < -350) delta_yaw += 360.0;
+
+  // ★ 積算ヨー角（連続的に増減するyaw_m）
+  yaw_m += delta_yaw;
+
 }
+
 
 // ===============================
 // 加速度 → グローバル座標変換
@@ -236,7 +286,7 @@ void updateMotorState() {
 void outputDataAsBytes() {
   int16_t angle_pitch = (int16_t)(pitch * 10.0);
   int16_t angle_roll  = (int16_t)(roll * 10.0);
-  int16_t angle_yaw   = (int16_t)(yaw_g * 10.0);
+  int16_t angle_yaw   = (int16_t)(yaw_m * 10.0);
   int16_t bend_to_send = (int16_t)(bend * 10.0);  
 
   uint8_t buffer[sizeof(int16_t) * 4];
@@ -280,7 +330,7 @@ void loop() {
   }
 
   // 直前の姿勢角を保存（平滑化に使用）
-  pitch0 = pitch; roll0 = roll; yaw_g0 = yaw_g;
+  pitch0 = pitch; roll0 = roll; yaw_g0 = yaw_m;
 
   // IMU（加速度・ジャイロ・地磁気）のデータを読み取って補正
   readIMUSensors(false);
