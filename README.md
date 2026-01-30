@@ -103,6 +103,19 @@ void setup() {
 }
 ```
 
+## 📚 使用ライブラリ
+
+| ライブラリ名         | 説明                        | インストール方法                                     |
+|----------------------|-----------------------------|------------------------------------------------------|
+| Arduino_LSM9DS1      | IMU（加速度・ジャイロ・地磁気）センサ用 | Arduino IDE → ライブラリマネージャから検索して導入 |
+| MadgwickAHRS         | 姿勢推定アルゴリズム        | Arduino IDE → ライブラリマネージャから検索して導入 |
+
+---
+
+## 📝 ライセンス
+
+このプロジェクトは [MIT License](https://opensource.org/licenses/MIT) のもとで公開されています。
+
 # Gricon Controller Code
 
 This repository contains the **controller-side program** for **Gricon**, a project exhibited at a hackathon hosted by the **Momoyama University Tech Club** on **December 27, 2024** (status as of **December 28, 2024**).
@@ -220,17 +233,5 @@ MadgwickAHRS	AHRS orientation estimation algorithm	Arduino IDE → Library Manag
 
 This project is released under the MIT License:
 https://opensource.org/licenses/MIT
-## 📚 使用ライブラリ
-
-| ライブラリ名         | 説明                        | インストール方法                                     |
-|----------------------|-----------------------------|------------------------------------------------------|
-| Arduino_LSM9DS1      | IMU（加速度・ジャイロ・地磁気）センサ用 | Arduino IDE → ライブラリマネージャから検索して導入 |
-| MadgwickAHRS         | 姿勢推定アルゴリズム        | Arduino IDE → ライブラリマネージャから検索して導入 |
-
----
-
-## 📝 ライセンス
-
-このプロジェクトは [MIT License](https://opensource.org/licenses/MIT) のもとで公開されています。
 
 
